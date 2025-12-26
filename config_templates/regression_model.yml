@@ -1,0 +1,74 @@
+# Configuration template for regression models
+
+model:
+  type: regression
+  problem_type: continuous  # or count
+  name: regression_model
+  version: "1.0.0"
+
+serving:
+  endpoint_name: regression-model-serving
+  workload_size: Small
+  scale_to_zero: true
+  min_replicas: 1
+  max_replicas: 5
+
+inference_table:
+  enabled: true
+  name: inference_logs
+  retention_days: 90
+
+monitoring:
+  profile_type: InferenceLog
+  output_schema: monitoring
+  granularities:
+    - "1 day"
+  refresh_schedule: "daily"
+
+  drift_detection:
+    enabled: true
+    baseline: training_data
+    threshold: 0.1
+
+  data_quality:
+    enabled: true
+    rules:
+      - null_check
+      - type_check
+      - range_check
+      - outlier_check
+
+  alerts:
+    - metric: prediction_drift
+      threshold: 0.15
+      severity: warning
+      notification_type: email
+      recipients:
+        - team@example.com
+
+    - metric: mae_increase
+      threshold: 0.2  # 20% increase in MAE
+      severity: critical
+      notification_type: email
+      recipients:
+        - team@example.com
+
+# Feature configuration
+features:
+  numerical:
+    - feature1
+    - feature2
+    - feature3
+
+  categorical:
+    - category1
+
+  target: value
+
+# Model hyperparameters (example for LightGBM)
+hyperparameters:
+  learning_rate: 0.05
+  n_estimators: 500
+  max_depth: 5
+  num_leaves: 31
+  objective: regression

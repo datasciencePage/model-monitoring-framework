@@ -1,0 +1,68 @@
+resources:
+  jobs:
+    monitoring_refresh:
+      name: "Model Monitoring Refresh"           # UPDATE: Customize job name
+      description: "Refresh monitoring metrics and send alerts"
+
+      tasks:
+        - task_key: refresh_all_monitors
+          job_cluster_key: main_cluster
+          python_wheel_task:
+            package_name: databricks_monitoring  # UPDATE: Your Python package name
+            entry_point: refresh_all_monitors
+            parameters:
+              - "--catalog=${var.catalog}"
+              - "--schema=${var.schema}"
+              - "--environment=${var.environment}"
+          libraries:
+            - whl: ../dist/*.whl
+
+        - task_key: analyze_drift
+          depends_on:
+            - task_key: refresh_all_monitors
+          job_cluster_key: main_cluster
+          python_wheel_task:
+            package_name: databricks_monitoring  # UPDATE: Your Python package name
+            entry_point: analyze_drift
+            parameters:
+              - "--catalog=${var.catalog}"
+              - "--schema=${var.schema}"
+              - "--days=7"
+          libraries:
+            - whl: ../dist/*.whl
+
+        - task_key: send_alerts
+          depends_on:
+            - task_key: analyze_drift
+          job_cluster_key: main_cluster
+          python_wheel_task:
+            package_name: databricks_monitoring  # UPDATE: Your Python package name
+            entry_point: send_alerts
+            parameters:
+              - "--catalog=${var.catalog}"
+              - "--schema=${var.schema}"
+              - "--environment=${var.environment}"
+          libraries:
+            - whl: ../dist/*.whl
+
+      job_clusters:
+        - job_cluster_key: main_cluster
+          new_cluster:
+            spark_version: "15.4.x-scala2.12"
+            node_type_id: "Standard_DS3_v2"
+            num_workers: 1
+            spark_conf:
+              spark.databricks.delta.preview.enabled: "true"
+
+      schedule:
+        # Daily refresh - schedule varies by environment
+        # dev: daily at midnight
+        # aut: daily at midnight
+        # prod: daily at 2 AM
+        quartz_cron_expression: "0 0 0 * * ?"
+        timezone_id: "UTC"
+        pause_status: "${var.schedule_pause_status}"
+
+      tags:
+        project: "your-project-name"         # UPDATE: Your project name
+        workflow: "monitoring-refresh"

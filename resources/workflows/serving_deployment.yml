@@ -1,0 +1,66 @@
+resources:
+  jobs:
+    serving_and_monitoring_deployment:
+      name: "Model Serving & Monitoring Deployment"  # UPDATE: Customize job name
+      description: "Deploy model serving endpoint with inference tables and monitoring"
+
+      tasks:
+        - task_key: deploy_serving_endpoint
+          job_cluster_key: main_cluster
+          python_wheel_task:
+            package_name: databricks_monitoring  # UPDATE: Your Python package name
+            entry_point: deploy_serving
+            parameters:
+              - "--catalog=${var.catalog}"
+              - "--schema=${var.schema}"
+              - "--environment=${var.environment}"
+              - "--git-sha=${var.git_sha}"
+          libraries:
+            - whl: ../dist/*.whl
+
+        - task_key: validate_inference_table
+          depends_on:
+            - task_key: deploy_serving_endpoint
+          job_cluster_key: main_cluster
+          python_wheel_task:
+            package_name: databricks_monitoring  # UPDATE: Your Python package name
+            entry_point: validate_inference_table
+            parameters:
+              - "--catalog=${var.catalog}"
+              - "--schema=${var.schema}"
+          libraries:
+            - whl: ../dist/*.whl
+
+        - task_key: setup_lakehouse_monitoring
+          depends_on:
+            - task_key: validate_inference_table
+          job_cluster_key: main_cluster
+          python_wheel_task:
+            package_name: databricks_monitoring  # UPDATE: Your Python package name
+            entry_point: setup_monitoring
+            parameters:
+              - "--catalog=${var.catalog}"
+              - "--schema=${var.schema}"
+              - "--environment=${var.environment}"
+          libraries:
+            - whl: ../dist/*.whl
+
+      job_clusters:
+        - job_cluster_key: main_cluster
+          new_cluster:
+            spark_version: "15.4.x-scala2.12"
+            node_type_id: "Standard_DS3_v2"
+            num_workers: 2
+            spark_conf:
+              spark.databricks.delta.preview.enabled: "true"
+
+      # Note: This workflow is designed to run on-demand or triggered by training workflow
+      # To enable scheduled runs, uncomment and configure the schedule section below:
+      # schedule:
+      #   quartz_cron_expression: "0 0 0 * * ?"  # Daily at midnight
+      #   timezone_id: "UTC"
+      #   pause_status: "PAUSED"
+
+      tags:
+        project: "your-project-name"      # UPDATE: Your project name
+        workflow: "serving-deployment"

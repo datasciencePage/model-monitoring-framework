@@ -1,0 +1,74 @@
+# Configuration template for classification models
+
+model:
+  type: classification
+  problem_type: binary  # or multiclass
+  name: classification_model
+  version: "1.0.0"
+
+serving:
+  endpoint_name: classification-model-serving
+  workload_size: Small  # Small, Medium, Large
+  scale_to_zero: true
+  min_replicas: 1
+  max_replicas: 5
+
+inference_table:
+  enabled: true
+  name: inference_logs
+  retention_days: 90
+
+monitoring:
+  profile_type: InferenceLog
+  output_schema: monitoring
+  granularities:
+    - "1 day"
+  refresh_schedule: "daily"  # daily, hourly, weekly
+
+  drift_detection:
+    enabled: true
+    baseline: training_data  # or specific_dataset
+    threshold: 0.1
+
+  data_quality:
+    enabled: true
+    rules:
+      - null_check
+      - type_check
+      - range_check
+      - cardinality_check
+
+  alerts:
+    - metric: prediction_drift
+      threshold: 0.1
+      severity: warning
+      notification_type: email
+      recipients:
+        - team@example.com
+
+    - metric: data_quality_score
+      threshold: 0.8
+      severity: critical
+      notification_type: email
+      recipients:
+        - team@example.com
+
+# Feature configuration
+features:
+  numerical:
+    - feature1
+    - feature2
+
+  categorical:
+    - category1
+    - category2
+
+  target: label
+
+# Model hyperparameters (example for LightGBM)
+hyperparameters:
+  learning_rate: 0.01
+  n_estimators: 1000
+  max_depth: 6
+  num_leaves: 31
+  min_child_samples: 20

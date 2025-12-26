@@ -1,0 +1,82 @@
+environments:
+  dev:
+    catalog: mlops_dev
+    schema: marvel_characters
+    serving:
+      endpoint_name: marvel-model-serving-dev
+      workload_size: Small
+      scale_to_zero: true
+      min_replicas: 1
+      max_replicas: 3
+    inference_table:
+      name: inference_logs
+      retention_days: 90
+    monitoring:
+      output_schema: monitoring
+      granularities:
+        - "1 day"
+      refresh_schedule: "0 0 * * *"  # Daily at midnight
+      alerts:
+        - metric: prediction_drift
+          threshold: 0.1
+          severity: warning
+          notification_type: email
+          recipients:
+            - dev-team@example.com
+
+  aut:
+    catalog: mlops_aut
+    schema: marvel_characters
+    serving:
+      endpoint_name: marvel-model-serving-aut
+      workload_size: Small
+      scale_to_zero: true
+      min_replicas: 1
+      max_replicas: 3
+    inference_table:
+      name: inference_logs
+      retention_days: 90
+    monitoring:
+      output_schema: monitoring
+      granularities:
+        - "1 day"
+      refresh_schedule: "0 0 * * *"  # Daily at midnight
+      alerts:
+        - metric: prediction_drift
+          threshold: 0.1
+          severity: warning
+          notification_type: email
+          recipients:
+            - qa-team@example.com
+
+  prod:
+    catalog: mlops_prod
+    schema: marvel_characters
+    serving:
+      endpoint_name: marvel-model-serving-prod
+      workload_size: Medium
+      scale_to_zero: false
+      min_replicas: 2
+      max_replicas: 10
+    inference_table:
+      name: inference_logs
+      retention_days: 90
+    monitoring:
+      output_schema: monitoring
+      granularities:
+        - "1 day"
+      refresh_schedule: "0 2 * * *"  # Daily at 2 AM
+      alerts:
+        - metric: prediction_drift
+          threshold: 0.05
+          severity: critical
+          notification_type: email
+          recipients:
+            - ml-ops-team@example.com
+            - data-science-lead@example.com
+        - metric: data_quality_score
+          threshold: 0.8
+          severity: critical
+          notification_type: email
+          recipients:
+            - ml-ops-team@example.com

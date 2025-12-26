@@ -1,0 +1,75 @@
+# Databricks Asset Bundle Configuration
+# UPDATE: Change bundle name and variables for your project
+
+bundle:
+  name: your-project-name              # UPDATE: Your project name
+
+include:
+  - resources/*
+  - resources/workflows/*.yml
+
+artifacts:
+  default:
+    type: whl
+    build: uv build
+    path: .
+
+variables:
+  git_sha:
+    description: Git commit SHA for tracking deployments
+    default: "local"
+  branch:
+    description: Git branch name
+    default: "main"
+  schedule_pause_status:
+    description: Schedule pause status for workflows
+    default: "PAUSED"
+  catalog:
+    description: Unity Catalog name
+  schema:
+    description: Schema name within catalog
+    default: "your_model_schema"       # UPDATE: Your schema name
+  environment:
+    description: Environment name (dev, aut, prod)
+
+
+targets:
+  dev:
+    default: true
+    mode: development
+    workspace:
+      host: <your-databricks-workspace-url>  # UPDATE: Your workspace URL
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.target}/${bundle.name}
+      profile: your-profile              # UPDATE: Your Databricks profile name
+    variables:
+      catalog: mlops_dev                 # UPDATE: Your dev catalog
+      schema: your_model_schema          # UPDATE: Your schema name
+      environment: dev
+      schedule_pause_status: PAUSED
+
+  aut:
+    presets:
+      name_prefix: 'aut_'
+    workspace:
+      host: <your-databricks-workspace-url>  # UPDATE: Your workspace URL
+      root_path: /Shared/.bundle/${bundle.target}/${bundle.name}
+      profile: your-profile              # UPDATE: Your Databricks profile name
+    variables:
+      catalog: mlops_aut                 # UPDATE: Your aut catalog
+      schema: your_model_schema          # UPDATE: Your schema name
+      environment: aut
+      schedule_pause_status: PAUSED
+
+  prod:
+    mode: production
+    presets:
+      name_prefix: 'prod_'
+    workspace:
+      host: <your-databricks-workspace-url>  # UPDATE: Your workspace URL
+      root_path: /Shared/.bundle/${bundle.target}/${bundle.name}
+      profile: your-profile              # UPDATE: Your Databricks profile name
+    variables:
+      catalog: mlops_prod                # UPDATE: Your prod catalog
+      schema: your_model_schema          # UPDATE: Your schema name
+      environment: prod
+      schedule_pause_status: UNPAUSED  # Run scheduled jobs in production

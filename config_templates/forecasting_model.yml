@@ -1,0 +1,84 @@
+# Configuration template for time series forecasting models
+
+model:
+  type: forecasting
+  problem_type: time_series
+  name: forecasting_model
+  version: "1.0.0"
+  forecast_horizon: 7  # days
+
+serving:
+  endpoint_name: forecasting-model-serving
+  workload_size: Medium
+  scale_to_zero: false  # Keep running for real-time forecasts
+  min_replicas: 2
+  max_replicas: 10
+
+inference_table:
+  enabled: true
+  name: inference_logs
+  retention_days: 365  # Longer retention for time series
+
+monitoring:
+  profile_type: TimeSeries
+  output_schema: monitoring
+  granularities:
+    - "1 hour"
+    - "1 day"
+  refresh_schedule: "hourly"
+
+  drift_detection:
+    enabled: true
+    baseline: training_data
+    threshold: 0.1
+    seasonality_aware: true
+
+  data_quality:
+    enabled: true
+    rules:
+      - null_check
+      - type_check
+      - range_check
+      - temporal_consistency
+      - seasonality_check
+
+  alerts:
+    - metric: forecast_accuracy_drop
+      threshold: 0.2  # 20% drop in accuracy
+      severity: critical
+      notification_type: email
+      recipients:
+        - forecasting-team@example.com
+
+    - metric: data_freshness
+      threshold: 24  # hours
+      severity: warning
+      notification_type: email
+      recipients:
+        - data-engineering@example.com
+
+# Feature configuration
+features:
+  temporal:
+    timestamp_col: timestamp
+    frequency: daily  # or hourly, weekly, monthly
+
+  numerical:
+    - metric1
+    - metric2
+
+  categorical:
+    - season
+    - holiday
+
+  target: forecast_value
+
+  lags: [1, 7, 14, 28]  # Lag features to create
+  rolling_windows: [7, 14, 28]  # Rolling window features
+
+# Model hyperparameters (example for Prophet or LightGBM)
+hyperparameters:
+  seasonality_mode: multiplicative
+  yearly_seasonality: true
+  weekly_seasonality: true
+  daily_seasonality: false
