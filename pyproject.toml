@@ -22,6 +22,12 @@ dependencies = [
 dynamic = ['version']
 
 [project.scripts]
+# Training pipeline scripts
+prepare_data = "databricks_monitoring.scripts.prepare_data:main"
+train_model = "databricks_monitoring.scripts.train_model:main"
+register_model = "databricks_monitoring.scripts.register_model:main"
+validate_model = "databricks_monitoring.scripts.validate_model:main"
+
 # Deployment scripts
 deploy_serving = "databricks_monitoring.scripts.deploy_serving:main"
 validate_inference_table = "databricks_monitoring.scripts.validate_inference_table:main"
@@ -51,7 +57,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where =["src"]
-include = ["house_price*", "marvel_characters*"]
+include = ["databricks_monitoring*"]
 
 
 [tool.setuptools.dynamic]

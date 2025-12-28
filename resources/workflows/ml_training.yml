@@ -1,0 +1,207 @@
+resources:
+  jobs:
+    ml_training_pipeline:
+      name: "ML Training Pipeline - ${var.environment}"
+      description: "End-to-end ML training pipeline with data prep, training, registration, and validation"
+
+      tags:
+        environment: "${var.environment}"
+        pipeline: "training"
+
+      schedule:
+        # Optional: Run weekly on Sundays at 2 AM
+        quartz_cron_expression: "0 0 2 ? * SUN"
+        timezone_id: "UTC"
+        pause_status: "PAUSED"  # Start paused, enable manually
+
+      email_notifications:
+        on_failure:
+          - "${var.alert_email}"
+        on_success:
+          - "${var.alert_email}"
+
+      max_concurrent_runs: 1
+      timeout_seconds: 7200  # 2 hours
+
+      tasks:
+        # Task 1: Data Preparation
+        - task_key: data_preparation
+          job_cluster_key: training_cluster
+
+          python_wheel_task:
+            package_name: databricks_monitoring
+            entry_point: prepare_data
+            parameters:
+              - "--catalog=${var.catalog}"
+              - "--schema=${var.schema}"
+              - "--environment=${var.environment}"
+              - "--train-table=train_set"
+              - "--test-table=test_set"
+              - "--test-size=0.2"
+              - "--random-seed=42"
+
+          libraries:
+            - whl: ../dist/*.whl
+
+          timeout_seconds: 900  # 15 minutes
+
+          email_notifications:
+            on_failure:
+              - "${var.alert_email}"
+
+        # Task 2: Model Training
+        - task_key: model_training
+          depends_on:
+            - task_key: data_preparation
+
+          job_cluster_key: training_cluster
+
+          python_wheel_task:
+            package_name: databricks_monitoring
+            entry_point: train_model
+            parameters:
+              - "--catalog=${var.catalog}"
+              - "--schema=${var.schema}"
+              - "--environment=${var.environment}"
+              - "--model-name=${var.model_name}"
+              - "--train-table=train_set"
+              - "--test-table=test_set"
+              - "--target-col=target"
+              - "--baseline-f1=${var.baseline_f1_score}"
+              - "--max-depth=5"
+              - "--n-estimators=100"
+              - "--learning-rate=0.1"
+              - "--random-seed=42"
+
+          libraries:
+            - whl: ../dist/*.whl
+
+          timeout_seconds: 1800  # 30 minutes
+
+          email_notifications:
+            on_failure:
+              - "${var.alert_email}"
+
+        # Task 3: Model Registration (conditional - only if training improved baseline)
+        - task_key: model_registration
+          depends_on:
+            - task_key: model_training
+              outcome: "true"  # Only run if training task succeeded (exit code 0)
+
+          job_cluster_key: training_cluster
+
+          python_wheel_task:
+            package_name: databricks_monitoring
+            entry_point: register_model
+            parameters:
+              - "--catalog=${var.catalog}"
+              - "--schema=${var.schema}"
+              - "--model-name=${var.model_name}"
+              - "--alias=latest-model"
+              - "--git-sha=${var.git_sha}"
+              - "--environment=${var.environment}"
+              - "--experiment-name=/Shared/${var.catalog}/${var.schema}/training"
+
+          libraries:
+            - whl: ../dist/*.whl
+
+          timeout_seconds: 600  # 10 minutes
+
+          email_notifications:
+            on_success:
+              - "${var.alert_email}"
+            on_failure:
+              - "${var.alert_email}"
+
+        # Task 4: Model Validation (conditional - only if registration succeeded)
+        - task_key: model_validation
+          depends_on:
+            - task_key: model_registration
+
+          job_cluster_key: training_cluster
+
+          python_wheel_task:
+            package_name: databricks_monitoring
+            entry_point: validate_model
+            parameters:
+              - "--catalog=${var.catalog}"
+              - "--schema=${var.schema}"
+              - "--model-name=${var.model_name}"
+              - "--alias=latest-model"
+              - "--test-table=test_set"
+              - "--sample-size=10"
+
+          libraries:
+            - whl: ../dist/*.whl
+
+          timeout_seconds: 600  # 10 minutes
+
+          email_notifications:
+            on_success:
+              - "${var.alert_email}"
+            on_failure:
+              - "${var.alert_email}"
+
+        # Task 5: Deploy to Serving (optional - only in prod after validation)
+        - task_key: deploy_to_serving
+          depends_on:
+            - task_key: model_validation
+
+          condition_task:
+            op: "EQUAL_TO"
+            left: "${var.environment}"
+            right: "prod"
+
+          job_cluster_key: training_cluster
+
+          python_wheel_task:
+            package_name: databricks_monitoring
+            entry_point: deploy_serving
+            parameters:
+              - "--catalog=${var.catalog}"
+              - "--schema=${var.schema}"
+              - "--environment=${var.environment}"
+              - "--git-sha=${var.git_sha}"
+
+          libraries:
+            - whl: ../dist/*.whl
+
+          timeout_seconds: 900  # 15 minutes
+
+          email_notifications:
+            on_success:
+              - "${var.alert_email}"
+            on_failure:
+              - "${var.alert_email}"
+
+      # Shared cluster configuration for all tasks
+      job_clusters:
+        - job_cluster_key: training_cluster
+          new_cluster:
+            spark_version: "15.4.x-scala2.12"
+            node_type_id: "Standard_DS3_v2"
+            num_workers: 2
+
+            spark_conf:
+              "spark.databricks.delta.preview.enabled": "true"
+              "spark.sql.adaptive.enabled": "true"
+              "spark.databricks.cluster.profile": "singleNode"
+
+            custom_tags:
+              ResourceClass: "SingleNode"
+              Environment: "${var.environment}"
+              Pipeline: "training"
+
+            # Auto-termination after job completes
+            autotermination_minutes: 10
+
+            # Enable Unity Catalog
+            data_security_mode: "USER_ISOLATION"
+
+            spark_env_vars:
+              MLFLOW_EXPERIMENT_NAME: "/Shared/${var.catalog}/${var.schema}/training"
+
+      # Access control
+      access_control_list:
+        - user_name: "${var.service_principal_name}"
+          permission_level: "IS_OWNER"

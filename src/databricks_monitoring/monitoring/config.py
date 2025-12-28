@@ -17,9 +17,7 @@ class AlertConfig(BaseModel):
     recipients: List[str] = Field(default_factory=list, description="List of recipients")
 
 
-class Inference
-
-TableConfig(BaseModel):
+class InferenceTableConfig(BaseModel):
     """Inference table configuration."""
 
     name: str = Field(..., description="Inference table name")
