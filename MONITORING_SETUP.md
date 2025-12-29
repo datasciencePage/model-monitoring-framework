@@ -63,7 +63,7 @@ Training → Model Registry (Unity Catalog) → Model Serving (with Inference Ta
    ```sql
    -- In each workspace
    GRANT CREATE, USAGE ON CATALOG mlops_{env} TO SERVICE_PRINCIPAL `{app-id}`;
-   GRANT CREATE, USAGE ON SCHEMA mlops_{env}.marvel_characters TO SERVICE_PRINCIPAL `{app-id}`;
+   GRANT CREATE, USAGE ON SCHEMA mlops_{env}.databricks_monitoring TO SERVICE_PRINCIPAL `{app-id}`;
    ```
 
 2. **Enable Serverless Compute** (if using serverless endpoints)
@@ -75,8 +75,8 @@ Training → Model Registry (Unity Catalog) → Model Serving (with Inference Ta
 ### 1. Clone Repository
 
 ```bash
-git clone https://github.com/your-org/marvel-characters.git
-cd marvel-characters
+git clone https://github.com/your-org/ml-model-characters.git
+cd ml-model-characters
 ```
 
 ### 2. Install Dependencies
@@ -107,9 +107,9 @@ Edit [`config/monitoring_config.yml`](config/monitoring_config.yml):
 environments:
   dev:
     catalog: mlops_dev
-    schema: marvel_characters
+    schema: databricks_monitoring
     serving:
-      endpoint_name: marvel-model-serving-dev
+      endpoint_name: ml-model-model-serving-dev
       workload_size: Small
       scale_to_zero: true
     inference_table:
@@ -180,20 +180,20 @@ The Azure DevOps pipeline ([`azure-pipelines.yml`](azure-pipelines.yml)) automat
 ### Using the Generic Monitoring Framework
 
 ```python
-from marvel_characters.monitoring.framework import MonitoringFramework
+from databricks_monitoring.monitoring.framework import MonitoringFramework
 
 # Initialize framework
 framework = MonitoringFramework(
     catalog="mlops_prod",
-    schema="marvel_characters",
-    model_name="marvel_character_model_basic"
+    schema="databricks_monitoring",
+    model_name="ml_character_model_basic"
 )
 
 # Deploy with monitoring
 deployment = framework.deploy_with_monitoring(
     model_version="1",
     serving_config={
-        "endpoint_name": "marvel-model-serving-prod",
+        "endpoint_name": "ml-model-model-serving-prod",
         "workload_size": "Medium",
         "scale_to_zero": False,
     },
@@ -204,7 +204,7 @@ deployment = framework.deploy_with_monitoring(
     monitoring_config={
         "output_schema": "monitoring",
         "granularities": ["1 day"],
-        "baseline_table": f"mlops_prod.marvel_characters.train_set",
+        "baseline_table": f"mlops_prod.databricks_monitoring.train_set",
         "problem_type": "classification",
         "alerts": [
             {
@@ -231,17 +231,17 @@ print(f"Dashboard: {deployment['dashboard_url']}")
 #### 1. MLFlow Tracking
 
 ```python
-from marvel_characters.mlflow_tracking import MLFlowTracker
+from databricks_monitoring.mlflow_tracking import MLFlowTracker
 
-tracker = MLFlowTracker(experiment_name="/Shared/marvel-characters-basic")
+tracker = MLFlowTracker(experiment_name="/Shared/ml-model-characters-basic")
 
 with tracker.start_run(run_name="training-run-001"):
     # Log training data
     tracker.log_training_data(
         train_df=train_df,
         test_df=test_df,
-        train_table_name="mlops_prod.marvel_characters.train_set",
-        test_table_name="mlops_prod.marvel_characters.test_set",
+        train_table_name="mlops_prod.databricks_monitoring.train_set",
+        test_table_name="mlops_prod.databricks_monitoring.test_set",
     )
 
     # Log hyperparameters
@@ -266,35 +266,35 @@ with tracker.start_run(run_name="training-run-001"):
     model_info = tracker.log_model_artifacts(
         model=model,
         X_sample=X_train.head(100),
-        registered_model_name="mlops_prod.marvel_characters.marvel_character_model_basic",
+        registered_model_name="mlops_prod.databricks_monitoring.ml_character_model_basic",
     )
 ```
 
 #### 2. Model Registry
 
 ```python
-from marvel_characters.model_registry import ModelRegistry
+from databricks_monitoring.model_registry import ModelRegistry
 
-registry = ModelRegistry(catalog="mlops_prod", schema="marvel_characters")
+registry = ModelRegistry(catalog="mlops_prod", schema="databricks_monitoring")
 
 # Register model
 model_version = registry.register_model(
     model_uri="runs:/{run_id}/model",
-    model_name="marvel_character_model_basic",
+    model_name="ml_character_model_basic",
     tags={"git_sha": "abc123", "environment": "prod"},
-    description="LightGBM classifier for Marvel character survival prediction",
+    description="LightGBM classifier for Generic character survival prediction",
 )
 
 # Set alias
 registry.set_model_alias(
-    model_name="marvel_character_model_basic",
+    model_name="ml_character_model_basic",
     version=model_version.version,
     alias="latest-model",
 )
 
 # Load model for inference
 model = registry.load_model_for_inference(
-    model_name="marvel_character_model_basic",
+    model_name="ml_character_model_basic",
     alias="latest-model",
 )
 ```
@@ -302,20 +302,20 @@ model = registry.load_model_for_inference(
 #### 3. Model Serving
 
 ```python
-from marvel_characters.serving.model_serving_setup import ServingSetup
+from databricks_monitoring.serving.model_serving_setup import ServingSetup
 
 serving = ServingSetup()
 
 # Create endpoint with inference table
 endpoint_name = serving.create_endpoint(
-    endpoint_name="marvel-model-serving-prod",
-    model_name="mlops_prod.marvel_characters.marvel_character_model_basic",
+    endpoint_name="ml-model-model-serving-prod",
+    model_name="mlops_prod.databricks_monitoring.ml_character_model_basic",
     model_version="1",
     workload_size="Medium",
     scale_to_zero=False,
     inference_table_config={
         "catalog": "mlops_prod",
-        "schema": "marvel_characters",
+        "schema": "databricks_monitoring",
         "table_name": "inference_logs",
         "enabled": True,
     },
@@ -334,17 +334,17 @@ response = serving.invoke_endpoint(
 #### 4. Lakehouse Monitoring
 
 ```python
-from marvel_characters.monitoring.lakehouse_monitor import LakehouseMonitor
+from databricks_monitoring.monitoring.lakehouse_monitor import LakehouseMonitor
 
-monitor = LakehouseMonitor(catalog="mlops_prod", schema="marvel_characters")
+monitor = LakehouseMonitor(catalog="mlops_prod", schema="databricks_monitoring")
 
 # Create monitor
 monitor_name = monitor.create_monitor(
-    inference_table="mlops_prod.marvel_characters.inference_logs",
+    inference_table="mlops_prod.databricks_monitoring.inference_logs",
     output_schema="mlops_prod.monitoring",
     profile_type="InferenceLog",
     granularities=["1 day"],
-    baseline_table="mlops_prod.marvel_characters.train_set",
+    baseline_table="mlops_prod.databricks_monitoring.train_set",
     problem_type="classification",
     prediction_col="prediction",
     timestamp_col="timestamp",
@@ -393,26 +393,26 @@ All scripts are available as entry points after installation:
 
 ```bash
 # Deploy serving endpoint
-deploy_serving --catalog mlops_prod --schema marvel_characters --environment prod --git-sha abc123
+deploy_serving --catalog mlops_prod --schema databricks_monitoring --environment prod --git-sha abc123
 
 # Validate inference table
-validate_inference_table --catalog mlops_prod --schema marvel_characters
+validate_inference_table --catalog mlops_prod --schema databricks_monitoring
 
 # Setup monitoring
-setup_monitoring --catalog mlops_prod --schema marvel_characters --environment prod
+setup_monitoring --catalog mlops_prod --schema databricks_monitoring --environment prod
 ```
 
 ### Monitoring Scripts
 
 ```bash
 # Refresh all monitors
-refresh_all_monitors --catalog mlops_prod --schema marvel_characters --environment prod
+refresh_all_monitors --catalog mlops_prod --schema databricks_monitoring --environment prod
 
 # Analyze drift
-analyze_drift --catalog mlops_prod --schema marvel_characters --days 7
+analyze_drift --catalog mlops_prod --schema databricks_monitoring --days 7
 
 # Send alerts
-send_alerts --catalog mlops_prod --schema marvel_characters --environment prod
+send_alerts --catalog mlops_prod --schema databricks_monitoring --environment prod
 ```
 
 ---
@@ -453,7 +453,7 @@ alerts:
 
 ### Custom Alerts
 
-Extend [`src/marvel_characters/scripts/send_alerts.py`](src/marvel_characters/scripts/send_alerts.py) to add:
+Extend [`src/databricks_monitoring/scripts/send_alerts.py`](src/databricks_monitoring/scripts/send_alerts.py) to add:
 - Slack notifications
 - PagerDuty integration
 - Custom webhooks
@@ -486,7 +486,7 @@ serving:
 ### 3. Use Generic Framework
 
 ```python
-from marvel_characters.monitoring.framework import MonitoringFramework
+from databricks_monitoring.monitoring.framework import MonitoringFramework
 
 framework = MonitoringFramework(
     catalog="mlops_prod",

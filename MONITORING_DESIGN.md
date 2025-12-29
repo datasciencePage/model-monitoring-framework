@@ -68,7 +68,7 @@ Design and implement a scalable, reusable Databricks Lakehouse monitoring framew
 ### Phase 1: Core Framework Components
 
 #### 1.1 MLFlow Tracking Module
-**File**: `src/marvel_characters/mlflow_tracking.py` (new)
+**File**: `src/databricks_monitoring/mlflow_tracking.py` (new)
 
 **Purpose**: Centralized MLFlow logging utilities
 
@@ -87,7 +87,7 @@ Design and implement a scalable, reusable Databricks Lakehouse monitoring framew
 ---
 
 #### 1.2 Model Registry Module
-**File**: `src/marvel_characters/model_registry.py` (new)
+**File**: `src/databricks_monitoring/model_registry.py` (new)
 
 **Purpose**: Unity Catalog registration and version management
 
@@ -107,7 +107,7 @@ Design and implement a scalable, reusable Databricks Lakehouse monitoring framew
 ---
 
 #### 1.3 Model Serving Setup Module
-**File**: `src/marvel_characters/serving/model_serving_setup.py` (enhanced)
+**File**: `src/databricks_monitoring/serving/model_serving_setup.py` (enhanced)
 
 **Purpose**: Create and configure model serving endpoints with inference tables
 
@@ -139,7 +139,7 @@ Reference: https://docs.databricks.com/aws/en/machine-learning/model-serving/inf
 ---
 
 #### 1.4 Lakehouse Monitoring Module
-**File**: `src/marvel_characters/monitoring/lakehouse_monitor.py` (new)
+**File**: `src/databricks_monitoring/monitoring/lakehouse_monitor.py` (new)
 
 **Purpose**: Create and manage Lakehouse monitors for model drift detection
 
@@ -174,7 +174,7 @@ Reference: https://docs.databricks.com/aws/en/lakehouse-monitoring/index.html
 ---
 
 #### 1.5 Configuration Management
-**File**: `src/marvel_characters/monitoring/config.py` (new)
+**File**: `src/databricks_monitoring/monitoring/config.py` (new)
 
 **Purpose**: Centralized configuration for monitoring framework
 
@@ -184,9 +184,9 @@ Reference: https://docs.databricks.com/aws/en/lakehouse-monitoring/index.html
 environments:
   dev:
     catalog: mlops_dev
-    schema: marvel_characters
+    schema: databricks_monitoring
     serving:
-      endpoint_name: marvel-model-serving-dev
+      endpoint_name: ml-model-model-serving-dev
       workload_size: Small
       scale_to_zero: true
     inference_table:
@@ -204,9 +204,9 @@ environments:
 
   aut:
     catalog: mlops_aut
-    schema: marvel_characters
+    schema: databricks_monitoring
     serving:
-      endpoint_name: marvel-model-serving-aut
+      endpoint_name: ml-model-model-serving-aut
       workload_size: Small
       scale_to_zero: true
     inference_table:
@@ -224,9 +224,9 @@ environments:
 
   prod:
     catalog: mlops_prod
-    schema: marvel_characters
+    schema: databricks_monitoring
     serving:
-      endpoint_name: marvel-model-serving-prod
+      endpoint_name: ml-model-model-serving-prod
       workload_size: Medium
       scale_to_zero: false
     inference_table:
@@ -575,7 +575,7 @@ stages:
 
 ```yaml
 bundle:
-  name: marvel-characters
+  name: ml-model-characters
 
 include:
   - resources/workflows/ml_training.yml
@@ -595,7 +595,7 @@ targets:
       host: ${var.databricks_host_dev}
     variables:
       catalog: mlops_dev
-      schema: marvel_characters
+      schema: databricks_monitoring
       environment: dev
     run_as:
       service_principal_name: ${var.sp_name_dev}
@@ -606,7 +606,7 @@ targets:
       host: ${var.databricks_host_aut}
     variables:
       catalog: mlops_aut
-      schema: marvel_characters
+      schema: databricks_monitoring
       environment: aut
     run_as:
       service_principal_name: ${var.sp_name_aut}
@@ -617,7 +617,7 @@ targets:
       host: ${var.databricks_host_prod}
     variables:
       catalog: mlops_prod
-      schema: marvel_characters
+      schema: databricks_monitoring
       environment: prod
     run_as:
       service_principal_name: ${var.sp_name_prod}
@@ -638,13 +638,13 @@ artifacts:
 resources:
   jobs:
     serving_and_monitoring_deployment:
-      name: "Marvel Characters - Serving & Monitoring"
+      name: "ML Model - Serving & Monitoring"
 
       tasks:
         - task_key: deploy_serving_endpoint
           job_cluster_key: main_cluster
           python_wheel_task:
-            package_name: marvel_characters
+            package_name: databricks_monitoring
             entry_point: deploy_serving
             parameters:
               - "--catalog=${var.catalog}"
@@ -659,7 +659,7 @@ resources:
             - task_key: deploy_serving_endpoint
           job_cluster_key: main_cluster
           python_wheel_task:
-            package_name: marvel_characters
+            package_name: databricks_monitoring
             entry_point: validate_inference_table
             parameters:
               - "--catalog=${var.catalog}"
@@ -672,7 +672,7 @@ resources:
             - task_key: validate_inference_table
           job_cluster_key: main_cluster
           python_wheel_task:
-            package_name: marvel_characters
+            package_name: databricks_monitoring
             entry_point: setup_monitoring
             parameters:
               - "--catalog=${var.catalog}"
@@ -702,9 +702,9 @@ resources:
 
 **Key Logic**:
 ```python
-from marvel_characters.serving.model_serving_setup import ServingSetup
-from marvel_characters.model_registry import ModelRegistry
-from marvel_characters.monitoring.config import load_config
+from databricks_monitoring.serving.model_serving_setup import ServingSetup
+from databricks_monitoring.model_registry import ModelRegistry
+from databricks_monitoring.monitoring.config import load_config
 
 def main(catalog, schema, environment, git_sha):
     # Load configuration
@@ -713,14 +713,14 @@ def main(catalog, schema, environment, git_sha):
     # Get latest model version
     registry = ModelRegistry(catalog, schema)
     model_version = registry.get_latest_model_version(
-        model_name="marvel_character_model_basic",
+        model_name="ml_character_model_basic",
         alias="latest-model"
     )
 
     # Create serving endpoint with inference table
     serving_setup = ServingSetup(config.serving)
     endpoint_name = serving_setup.create_endpoint(
-        model_name=f"{catalog}.{schema}.marvel_character_model_basic",
+        model_name=f"{catalog}.{schema}.ml_character_model_basic",
         model_version=model_version,
         inference_table_config={
             "catalog": catalog,
@@ -751,8 +751,8 @@ def main(catalog, schema, environment, git_sha):
 
 **Key Logic**:
 ```python
-from marvel_characters.monitoring.lakehouse_monitor import LakehouseMonitor
-from marvel_characters.monitoring.config import load_config
+from databricks_monitoring.monitoring.lakehouse_monitor import LakehouseMonitor
+from databricks_monitoring.monitoring.config import load_config
 
 def main(catalog, schema, environment):
     # Load configuration
@@ -794,7 +794,7 @@ def main(catalog, schema, environment):
 ### Phase 6: Scalability and Reusability
 
 #### 6.1 Generic Monitoring Framework
-**File**: `src/marvel_characters/monitoring/framework.py` (new)
+**File**: `src/databricks_monitoring/monitoring/framework.py` (new)
 
 **Purpose**: Abstract monitoring framework for any model
 
@@ -929,8 +929,8 @@ monitoring:
 ### New Files to Create
 
 ```
-marvel-characters/
-├── src/marvel_characters/
+ml-model-characters/
+├── src/databricks_monitoring/
 │   ├── mlflow_tracking.py              # MLFlow logging utilities (NEW)
 │   ├── model_registry.py               # Unity Catalog management (NEW)
 │   ├── serving/
@@ -965,7 +965,7 @@ marvel-characters/
 
 - `databricks.yml`: Add new workflows
 - `resources/model_deployment.yml`: Rename to `ml_training.yml`, update structure
-- `src/marvel_characters/models/basic_model.py`: Enhance MLFlow logging
+- `src/databricks_monitoring/models/basic_model.py`: Enhance MLFlow logging
 - `pyproject.toml`: Add new entry points for scripts
 
 ---

@@ -166,6 +166,13 @@ validate_model \
 
 **Purpose**: Prepare and version training/test datasets
 
+The script supports three data sources:
+1. **Delta Tables** - Load from existing Unity Catalog tables
+2. **Feature Store** - Load features from Databricks Feature Store
+3. **Synthetic Data** - Generate sample data for testing
+
+#### Option A: Load from Delta Table
+
 ```bash
 prepare_data \
   --catalog mlops_dev \
@@ -178,11 +185,58 @@ prepare_data \
   --random-seed 42
 ```
 
+#### Option B: Load from Feature Store
+
+```bash
+prepare_data \
+  --catalog mlops_dev \
+  --schema fraud_detection \
+  --environment dev \
+  --feature-store-table mlops_dev.features.user_features \
+  --lookup-key user_id \
+  --label-table mlops_dev.labels.fraud_labels \
+  --label-column is_fraud \
+  --train-table train_set \
+  --test-table test_set \
+  --test-size 0.2 \
+  --random-seed 42
+```
+
+#### Option C: Load Specific Features from Feature Store
+
+```bash
+prepare_data \
+  --catalog mlops_dev \
+  --schema fraud_detection \
+  --environment dev \
+  --feature-store-table mlops_dev.features.user_features \
+  --lookup-key user_id \
+  --feature-columns transaction_amount avg_transaction_amount transaction_count \
+  --label-table mlops_dev.labels.fraud_labels \
+  --label-column is_fraud \
+  --train-table train_set \
+  --test-table test_set \
+  --test-size 0.2
+```
+
 **Parameters**:
+
+**Required**:
 - `--catalog` (required): Unity Catalog name
 - `--schema` (required): Schema name
 - `--environment` (required): Environment (dev/aut/prod)
-- `--source-table`: Source table (if not provided, generates synthetic data)
+
+**Delta Table Source**:
+- `--source-table`: Source Delta table name (if not provided, uses synthetic data)
+
+**Feature Store Source** (cannot be used with `--source-table`):
+- `--feature-store-table`: Feature Store table name (format: catalog.schema.table)
+- `--lookup-key`: Primary key column for feature lookup (required with Feature Store)
+- `--feature-columns`: Specific features to load (optional, loads all if not specified)
+- `--label-table`: Label table to join with features (format: catalog.schema.table)
+- `--label-column`: Target column name in label table (default: target)
+
+**Output Options**:
 - `--train-table`: Training table name (default: train_set)
 - `--test-table`: Test table name (default: test_set)
 - `--test-size`: Test set proportion 0.0-1.0 (default: 0.2)
@@ -190,8 +244,15 @@ prepare_data \
 
 **Outputs**:
 - Delta tables: `{catalog}.{schema}.train_set`, `{catalog}.{schema}.test_set`
-- MLFlow datasets logged with versions
+- MLFlow datasets logged with versions and source metadata
 - Exit code 0 on success
+
+**Feature Store Benefits**:
+- ✅ Centralized feature management
+- ✅ Feature versioning and lineage tracking
+- ✅ Automatic feature freshness
+- ✅ Consistent features across training and serving
+- ✅ Feature monitoring and drift detection
 
 ---
 
@@ -501,7 +562,90 @@ train_model \
   --n-estimators 200
 ```
 
-### Example 3: A/B Testing with Champion/Challenger
+### Example 3: Training with Feature Store
+
+```bash
+#!/bin/bash
+# Complete training pipeline using Databricks Feature Store
+
+CATALOG="mlops_dev"
+SCHEMA="fraud_detection"
+ENV="dev"
+MODEL_NAME="fraud_detector_fs"
+
+# Feature Store tables
+FEATURE_TABLE="mlops_dev.features.user_transaction_features"
+LABEL_TABLE="mlops_dev.labels.fraud_labels"
+
+echo "Step 1: Prepare data from Feature Store..."
+prepare_data \
+  --catalog $CATALOG \
+  --schema $SCHEMA \
+  --environment $ENV \
+  --feature-store-table $FEATURE_TABLE \
+  --lookup-key user_id \
+  --label-table $LABEL_TABLE \
+  --label-column is_fraud \
+  --test-size 0.2
+
+echo "Step 2: Train model..."
+train_model \
+  --catalog $CATALOG \
+  --schema $SCHEMA \
+  --environment $ENV \
+  --model-name $MODEL_NAME \
+  --target-col is_fraud \
+  --baseline-f1 0.75 \
+  --max-depth 7 \
+  --n-estimators 200 \
+  --learning-rate 0.05
+
+if [ $? -eq 0 ]; then
+    echo "Step 3: Register model..."
+    register_model \
+      --catalog $CATALOG \
+      --schema $SCHEMA \
+      --model-name $MODEL_NAME \
+      --alias latest-model \
+      --git-sha $(git rev-parse HEAD) \
+      --environment $ENV
+
+    echo "Step 4: Validate model..."
+    validate_model \
+      --catalog $CATALOG \
+      --schema $SCHEMA \
+      --model-name $MODEL_NAME \
+      --alias latest-model
+
+    echo "✓ Feature Store training pipeline completed!"
+else
+    echo "✗ Model did not improve baseline"
+    exit 1
+fi
+```
+
+**Feature Store Setup**:
+
+Before running this pipeline, ensure your Feature Store tables exist:
+
+```python
+from databricks.feature_engineering import FeatureEngineeringClient
+
+fe = FeatureEngineeringClient()
+
+# Create feature table
+fe.create_table(
+    name="mlops_dev.features.user_transaction_features",
+    primary_keys=["user_id"],
+    df=user_features_df,
+    description="User transaction aggregated features"
+)
+
+# Create label table (separate from features)
+label_df.write.saveAsTable("mlops_dev.labels.fraud_labels")
+```
+
+### Example 4: A/B Testing with Champion/Challenger
 
 ```bash
 # Register champion model
@@ -584,6 +728,71 @@ mlflow.create_experiment(
     name="/Shared/mlops_dev/my_model/training",
     tags={"purpose": "training", "environment": "dev"}
 )
+```
+
+#### Issue 5: Feature Store table not found
+
+**Symptom**: `Table 'catalog.schema.feature_table' not found`
+
+**Solution**:
+```python
+from databricks.feature_engineering import FeatureEngineeringClient
+from pyspark.sql import SparkSession
+
+spark = SparkSession.builder.getOrCreate()
+fe = FeatureEngineeringClient()
+
+# Verify feature table exists
+try:
+    feature_df = spark.table("mlops_dev.features.user_features")
+    print(f"Feature table found: {feature_df.count()} rows")
+except Exception as e:
+    print(f"Feature table not found: {e}")
+    # Create the feature table
+    # fe.create_table(...)
+```
+
+#### Issue 6: Feature Store join fails - no matching keys
+
+**Symptom**: `Lost X rows in join. Ensure label table has matching lookup_key values`
+
+**Solution**:
+```python
+# Check for matching keys between feature and label tables
+from pyspark.sql import SparkSession
+
+spark = SparkSession.builder.getOrCreate()
+
+feature_df = spark.table("mlops_dev.features.user_features")
+label_df = spark.table("mlops_dev.labels.fraud_labels")
+
+# Count unique keys in each table
+feature_keys = feature_df.select("user_id").distinct().count()
+label_keys = label_df.select("user_id").distinct().count()
+
+print(f"Feature table has {feature_keys} unique user_ids")
+print(f"Label table has {label_keys} unique user_ids")
+
+# Find keys in features but not in labels
+missing_in_labels = feature_df.select("user_id").subtract(label_df.select("user_id"))
+print(f"Keys in features missing from labels: {missing_in_labels.count()}")
+```
+
+#### Issue 7: Feature Engineering client not available
+
+**Symptom**: `No module named 'databricks.feature_engineering'`
+
+**Solution**:
+```bash
+# Install feature engineering client
+pip install databricks-feature-engineering
+
+# Or add to pyproject.toml
+[project]
+dependencies = [
+    "databricks-feature-engineering>=0.2.0",
+    # ... other dependencies
+]
 ```
 
 #### Issue 5: Validation fails on signature check

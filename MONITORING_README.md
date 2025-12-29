@@ -22,7 +22,7 @@ This project includes comprehensive documentation for the Databricks Lakehouse m
    - **Read this for implementation** details
 
 ### 3. **[README.md](README.md)** - Original Project Documentation
-   - Marvel characters project overview
+   - Generic characters project overview
    - Basic project structure
    - Original MLOps pipeline
 
@@ -162,8 +162,8 @@ This project includes comprehensive documentation for the Databricks Lakehouse m
 ## 📁 Project Structure
 
 ```
-marvel-characters/
-├── src/marvel_characters/
+ml-model-characters/
+├── src/databricks_monitoring/
 │   ├── mlflow_tracking.py              # MLFlow utilities
 │   ├── model_registry.py               # Unity Catalog management
 │   ├── monitoring/                     # Monitoring framework
@@ -230,9 +230,9 @@ marvel-characters/
 ### Deploy Model with Monitoring (5 Lines!)
 
 ```python
-from marvel_characters.monitoring.framework import MonitoringFramework
+from databricks_monitoring.monitoring.framework import MonitoringFramework
 
-framework = MonitoringFramework("mlops_prod", "marvel_characters", "my_model")
+framework = MonitoringFramework("mlops_prod", "databricks_monitoring", "my_model")
 deployment = framework.deploy_with_monitoring(
     model_version="1",
     serving_config={"endpoint_name": "my-model-serving", "workload_size": "Medium"},
@@ -246,13 +246,13 @@ print(f"Deployed! Dashboard: {deployment['dashboard_url']}")
 
 ```bash
 # Deploy serving endpoint
-deploy_serving --catalog mlops_prod --schema marvel_characters --environment prod
+deploy_serving --catalog mlops_prod --schema databricks_monitoring --environment prod
 
 # Setup monitoring
-setup_monitoring --catalog mlops_prod --schema marvel_characters --environment prod
+setup_monitoring --catalog mlops_prod --schema databricks_monitoring --environment prod
 
 # Analyze drift
-analyze_drift --catalog mlops_prod --schema marvel_characters --days 7
+analyze_drift --catalog mlops_prod --schema databricks_monitoring --days 7
 ```
 
 ---
@@ -329,7 +329,7 @@ Quick fixes:
 
 ### Code Examples
 All components include comprehensive docstrings and usage examples. Check:
-- Module docstrings in `src/marvel_characters/`
+- Module docstrings in `src/databricks_monitoring/`
 - Script help: `deploy_serving --help`
 - Configuration templates in `config_templates/`
 
@@ -343,7 +343,7 @@ When adapting this framework for new models:
 2. **Update configuration** with your model specifics
 3. **Use the generic framework**:
    ```python
-   from marvel_characters.monitoring.framework import MonitoringFramework
+   from databricks_monitoring.monitoring.framework import MonitoringFramework
    framework = MonitoringFramework(catalog, schema, model_name)
    framework.deploy_with_monitoring(...)
    ```

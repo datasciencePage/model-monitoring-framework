@@ -3,18 +3,27 @@
 This script prepares training and test datasets, saves them to Delta tables with versioning,
 and logs dataset information to MLFlow for tracking and lineage.
 
+Supports multiple data sources:
+- Delta tables (Unity Catalog)
+- Databricks Feature Store tables
+- Synthetic data generation
+
 Usage:
-    python prepare_data.py --catalog <catalog> --schema <schema> --environment <env>
+    # From Delta table
+    python prepare_data.py --catalog <catalog> --schema <schema> --environment <env> --source-table my_table
+
+    # From Feature Store
+    python prepare_data.py --catalog <catalog> --schema <schema> --environment <env> --feature-store-table <table> --lookup-key <key>
 
     Or as CLI entry point:
-    prepare_data --catalog mlops_dev --schema my_model --environment dev
+    prepare_data --catalog mlops_dev --schema my_model --environment dev --feature-store-table my_features --lookup-key user_id
 """
 
 import argparse
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Tuple
+from typing import List, Optional, Tuple
 
 from loguru import logger
 from pyspark.sql import DataFrame, SparkSession
@@ -49,8 +58,39 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--source-table",
         type=str,
-        help="Source table name for data. If not provided, uses synthetic data.",
+        help="Source Delta table name for data. If not provided and no Feature Store options given, uses synthetic data.",
     )
+
+    # Feature Store options
+    parser.add_argument(
+        "--feature-store-table",
+        type=str,
+        help="Feature Store table name (format: catalog.schema.table). Cannot be used with --source-table.",
+    )
+    parser.add_argument(
+        "--lookup-key",
+        type=str,
+        help="Primary key column name for Feature Store lookup (required if using --feature-store-table).",
+    )
+    parser.add_argument(
+        "--feature-columns",
+        type=str,
+        nargs="+",
+        help="Specific feature columns to load from Feature Store. If not provided, loads all features.",
+    )
+    parser.add_argument(
+        "--label-table",
+        type=str,
+        help="Optional label table to join with Feature Store features (format: catalog.schema.table).",
+    )
+    parser.add_argument(
+        "--label-column",
+        type=str,
+        default="target",
+        help="Target column name in label table (default: target)",
+    )
+
+    # Output options
     parser.add_argument(
         "--train-table",
         type=str,
@@ -75,11 +115,114 @@ def parse_args() -> argparse.Namespace:
         default=42,
         help="Random seed for reproducibility (default: 42)",
     )
-    return parser.parse_args()
+
+    args = parser.parse_args()
+
+    # Validation: Cannot use both source-table and feature-store-table
+    if args.source_table and args.feature_store_table:
+        parser.error("Cannot use both --source-table and --feature-store-table. Choose one data source.")
+
+    # Validation: Feature Store requires lookup key
+    if args.feature_store_table and not args.lookup_key:
+        parser.error("--lookup-key is required when using --feature-store-table")
+
+    return args
+
+
+def load_from_feature_store(
+    spark: SparkSession,
+    feature_table: str,
+    lookup_key: str,
+    feature_columns: Optional[List[str]] = None,
+    label_table: Optional[str] = None,
+    label_column: str = "target",
+) -> DataFrame:
+    """Load data from Databricks Feature Store.
+
+    Args:
+        spark: SparkSession instance
+        feature_table: Feature Store table name (catalog.schema.table)
+        lookup_key: Primary key column name for feature lookup
+        feature_columns: Optional list of specific features to load. If None, loads all.
+        label_table: Optional label table to join with features (catalog.schema.table)
+        label_column: Target column name in label table
+
+    Returns:
+        DataFrame: Training data with features and optional labels
+
+    Raises:
+        Exception: If Feature Store table doesn't exist or loading fails
+    """
+    logger.info("=" * 60)
+    logger.info("Loading Data from Feature Store")
+    logger.info("=" * 60)
+    logger.info(f"Feature table: {feature_table}")
+    logger.info(f"Lookup key: {lookup_key}")
+
+    try:
+        from databricks.feature_engineering import FeatureEngineeringClient
+
+        fe = FeatureEngineeringClient()
+
+        # Load feature table
+        logger.info(f"Reading feature table: {feature_table}")
+        feature_df = spark.table(feature_table)
+
+        # Filter to specific columns if requested
+        if feature_columns:
+            # Always include lookup key
+            columns_to_select = [lookup_key] + [col for col in feature_columns if col != lookup_key]
+            feature_df = feature_df.select(*columns_to_select)
+            logger.info(f"Selected {len(feature_columns)} specific features")
+
+        feature_count = feature_df.count()
+        logger.info(f"Loaded {feature_count} rows from feature table")
+        logger.info(f"Feature columns: {feature_df.columns}")
+
+        # Join with labels if label table provided
+        if label_table:
+            logger.info(f"Joining with label table: {label_table}")
+            label_df = spark.table(label_table)
+
+            # Select only lookup key and label column
+            label_df = label_df.select(lookup_key, label_column)
+
+            # Join features with labels
+            training_df = feature_df.join(label_df, on=lookup_key, how="inner")
+
+            final_count = training_df.count()
+            logger.info(f"Joined {final_count} rows (features + labels)")
+
+            if final_count < feature_count:
+                logger.warning(
+                    f"Lost {feature_count - final_count} rows in join. "
+                    f"Ensure label table has matching {lookup_key} values."
+                )
+        else:
+            training_df = feature_df
+            logger.warning(
+                f"No label table provided. Ensure feature table contains '{label_column}' column, "
+                "or use --label-table to join with labels."
+            )
+
+        logger.info(f"Final dataset: {training_df.count()} rows, {len(training_df.columns)} columns")
+        logger.info("=" * 60)
+
+        return training_df
+
+    except ImportError:
+        logger.error(
+            "Databricks Feature Engineering client not available. "
+            "Ensure you're running on Databricks or have databricks-feature-engineering installed."
+        )
+        raise
+    except Exception as e:
+        logger.error(f"Failed to load from Feature Store: {e}")
+        raise
 
 
 def load_or_generate_data(
-    spark: SparkSession, catalog: str, schema: str, source_table: str = None
+    spark: SparkSession, catalog: str, schema: str, source_table: Optional[str] = None
 ) -> DataFrame:
     """Load data from source table or generate synthetic data.
 
@@ -97,7 +240,7 @@ def load_or_generate_data(
     """
     if source_table:
         table_path = f"{catalog}.{schema}.{source_table}"
-        logger.info(f"Loading data from {table_path}")
+        logger.info(f"Loading data from Delta table: {table_path}")
         try:
             df = spark.table(table_path)
             logger.info(f"Loaded {df.count()} rows from {table_path}")
@@ -206,24 +349,56 @@ def main():
         )
 
         with tracker.start_run(run_name=f"data_prep_{args.environment}"):
-            # Log parameters
-            tracker.log_params(
-                {
-                    "catalog": args.catalog,
-                    "schema": args.schema,
-                    "environment": args.environment,
-                    "test_size": args.test_size,
-                    "random_seed": args.random_seed,
-                    "train_table": args.train_table,
-                    "test_table": args.test_table,
-                    "preparation_date": datetime.now().isoformat(),
-                }
-            )
+            # Determine data source type
+            data_source = "synthetic"
+            if args.feature_store_table:
+                data_source = "feature_store"
+            elif args.source_table:
+                data_source = "delta_table"
 
-            # Load or generate data
-            raw_df = load_or_generate_data(
-                spark, args.catalog, args.schema, args.source_table
-            )
+            # Log parameters
+            params = {
+                "catalog": args.catalog,
+                "schema": args.schema,
+                "environment": args.environment,
+                "test_size": args.test_size,
+                "random_seed": args.random_seed,
+                "train_table": args.train_table,
+                "test_table": args.test_table,
+                "data_source": data_source,
+                "preparation_date": datetime.now().isoformat(),
+            }
+
+            # Add Feature Store specific parameters
+            if args.feature_store_table:
+                params.update({
+                    "feature_store_table": args.feature_store_table,
+                    "lookup_key": args.lookup_key,
+                    "label_table": args.label_table or "none",
+                    "label_column": args.label_column,
+                    "feature_columns": ",".join(args.feature_columns) if args.feature_columns else "all",
+                })
+            elif args.source_table:
+                params["source_table"] = args.source_table
+
+            tracker.log_params(params)
+
+            # Load data based on source type
+            if args.feature_store_table:
+                logger.info("Loading data from Feature Store")
+                raw_df = load_from_feature_store(
+                    spark=spark,
+                    feature_table=args.feature_store_table,
+                    lookup_key=args.lookup_key,
+                    feature_columns=args.feature_columns,
+                    label_table=args.label_table,
+                    label_column=args.label_column,
+                )
+            else:
+                # Load from Delta table or generate synthetic data
+                raw_df = load_or_generate_data(
+                    spark, args.catalog, args.schema, args.source_table
+                )
 
             # Split into train and test
             train_df, test_df = split_train_test(

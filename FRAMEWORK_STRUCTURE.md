@@ -289,7 +289,7 @@ databricks bundle deploy --target prod
 1. **Update package name in `pyproject.toml`**:
    ```toml
    [project]
-   name = "your-package-name"  # Change from "marvel_characters"
+   name = "your-package-name"  # Change from "databricks_monitoring"
    ```
 
 2. **Update configuration files**:
